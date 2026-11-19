@@ -1,36 +1,79 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ردّاد — موظف استقبال ذكي على واتساب (MVP)
 
-## Getting Started
+مساعد ذكي يرد على عملاء المشاريع الصغيرة في واتساب على مدار الساعة: يجيب عن الأسعار والمواعيد، يأخذ الطلبات ويحجز المواعيد، ويحوّل المحادثة لموظف عند الشكوى أو الطلب.
 
-First, run the development server:
+**التقنيات:** Next.js 16 (App Router) · PostgreSQL + Drizzle ORM · Claude API · WhatsApp Cloud API · Tailwind
+
+## ما الذي يعمل الآن
+
+- **Webhook واتساب** (`/api/whatsapp/webhook`): التحقق من Meta، فحص التوقيع `X-Hub-Signature-256`، تجاهل الرسائل المكررة، علامة «مقروء»، والرد في الخلفية مع دمج الرسائل المتتالية في رد واحد.
+- **محرك الرد**: Claude مع أداة `respond` منظمة (رد + تحويل لموظف + تسجيل طلب/حجز + اسم العميل). يجيب فقط من معلومات النشاط، ويدعم أي لهجة.
+- **وضع تجريبي**: بدون مفتاح Claude يرد البوت بقواعد بسيطة حتى تعرض المنتج.
+- **التحويل لموظف**: بكلمات مفتاحية أو بقرار الذكاء الاصطناعي، فيتوقف البوت عن الرد على هذه المحادثة وتظهر في «تحتاج تدخل».
+- **لوحة تحكم عربية (RTL)**:
+  - مدير المنصة: إنشاء أنشطة من 6 قوالب جاهزة (عيادة، مطعم، صالون، عقارات، متجر، عام).
+  - صندوق المحادثات مع تحديث تلقائي، استلام المحادثة، والرد اليدوي (مع تنبيه نافذة الـ 24 ساعة).
+  - الطلبات والحجوزات منظمة مع حالة (جديد/تم/ملغي).
+  - **محاكي واتساب** لتجربة البوت قبل ربط أي رقم.
+  - إعدادات المعرفة والأسلوب وربط واتساب، وتشغيل/إيقاف البوت.
+- **دخول العملاء**: كل صاحب نشاط يدخل بمعرّف نشاطه وكلمة مرور ويرى بياناته فقط.
+- صفحة هبوط تسويقية بسيطة.
+
+## التشغيل محليًا
 
 ```bash
+npm install
+cp .env.example .env        # عدّل القيم
+npm run db:migrate          # إنشاء الجداول
+npm run seed                # (اختياري) مطعم تجريبي: demo-restaurant / demo12345
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+ادخل على `http://localhost:3000/login`، واترك «معرّف النشاط» فارغًا وأدخل `ADMIN_PASSWORD`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## النشر على Vercel
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. أنشئ قاعدة PostgreSQL (Vercel Postgres / Neon / Supabase) وضع الرابط في `DATABASE_URL`.
+2. أضف متغيرات البيئة من `.env.example` في إعدادات المشروع على Vercel.
+3. شغّل الترحيل مرة واحدة على قاعدة الإنتاج: `DATABASE_URL=... npm run db:migrate`.
+4. انشر (`vercel --prod` أو بالربط مع GitHub).
 
-## Learn More
+> ملاحظة: إن كانت القاعدة تستخدم connection pooler (مثل Neon)، استخدم رابط الـ pooled في `DATABASE_URL`.
 
-To learn more about Next.js, take a look at the following resources:
+## ربط واتساب (لكل نشاط)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+1. من [Meta for Developers](https://developers.facebook.com/) أنشئ تطبيقًا من نوع Business وأضف منتج WhatsApp.
+2. **Webhook:** الرابط `https://YOUR-DOMAIN/api/whatsapp/webhook`، ورمز التحقق = `WA_VERIFY_TOKEN`، واشترك في الحقل `messages`.
+3. ضع `WA_APP_SECRET` (App settings > Basic) في متغيرات البيئة. **إلزامي في الإنتاج**: بدونه تُرفض كل الرسائل.
+4. من تبويب «الإعدادات» للنشاط: الصق **Phone number ID** و**Access token** دائم (System User في Business Manager).
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+> رابط Webhook واحد يخدم كل الأنشطة؛ النظام يميّز النشاط من `phone_number_id`.
 
-## Deploy on Vercel
+## هيكل المشروع
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```
+src/
+  app/
+    api/whatsapp/webhook/route.ts   # استقبال رسائل واتساب
+    actions.ts                      # Server Actions (دخول، إعدادات، ردود، محاكي)
+    dashboard/...                   # لوحة التحكم
+  db/schema.ts                      # جداول Drizzle
+  lib/
+    ai.ts                           # Claude + الوضع التجريبي
+    engine.ts                       # منطق المحادثة والتحويل والإرسال
+    whatsapp.ts                     # Cloud API: إرسال، توقيع، تحليل
+    templates.ts                    # قوالب الأنشطة
+    auth.ts                         # جلسات موقّعة + كلمات مرور scrypt
+  proxy.ts                          # حماية /dashboard
+drizzle/                            # ملفات الترحيل
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## المرحلة التالية (غير موجودة في الـ MVP)
+
+- **الفوترة والاشتراكات** (Stripe / Paddle / Tap / Moyasar): تحتاج حساب الدفع الخاص بك.
+- **التسجيل الذاتي** للعملاء بدل إنشاء المدير للأنشطة.
+- **Embedded Signup** من Meta لربط واتساب بضغطة زر بدل نسخ التوكن.
+- تقرير يومي لصاحب النشاط (واتساب أو بريد) عبر Vercel Cron.
+- فهم الرسائل الصوتية والصور (تحويل الصوت لنص + رؤية).
+- قوالب رسائل معتمدة للمتابعة بعد 24 ساعة.
+- تشفير التوكنات في قاعدة البيانات، وحدود استخدام لكل باقة، وتطبيق جوال (Flutter) للإشعارات.

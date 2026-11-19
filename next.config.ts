@@ -1,9 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
-  cacheComponents: true,
-  partialPrefetching: true,
+  // Every dashboard page is per-user and live, so we render dynamically.
+  cacheComponents: false,
+  partialPrefetching: false,
+  serverExternalPackages: ["pg"],
   turbopack: {
     rules: {
       "*.css": {
