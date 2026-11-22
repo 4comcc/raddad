@@ -16,6 +16,7 @@ import {
   verifyPassword,
 } from "@/lib/auth";
 import { getTemplate } from "@/lib/templates";
+import { normalizeStoreUrl, testConnection, wooCreds } from "@/lib/woocommerce";
 import {
   getConversationMessages,
   processConversation,
@@ -110,6 +111,25 @@ export async function updateBusiness(businessId: string, _: FormState, form: For
   if (phoneId !== null) data.waPhoneNumberId = String(phoneId).trim() || null;
   const token = String(form.get("waAccessToken") ?? "").trim();
   if (token) data.waAccessToken = token; // empty = keep existing
+
+  // WooCommerce
+  const wooUrl = form.get("wooUrl");
+  if (wooUrl !== null) {
+    const u = String(wooUrl).trim();
+    if (!u) {
+      data.wooUrl = null;
+      data.wooConsumerKey = null;
+      data.wooConsumerSecret = null;
+    } else {
+      const normalized = normalizeStoreUrl(u);
+      if (!/^https:\/\//.test(normalized)) return { error: "رابط المتجر يجب أن يبدأ بـ https://" };
+      data.wooUrl = normalized;
+      const ck = String(form.get("wooConsumerKey") ?? "").trim();
+      const cs = String(form.get("wooConsumerSecret") ?? "").trim();
+      if (ck) data.wooConsumerKey = ck;
+      if (cs) data.wooConsumerSecret = cs;
+    }
+  }
 
   if (session.role === "admin") {
     const pw = String(form.get("clientPassword") ?? "");
@@ -212,7 +232,7 @@ export async function loadSimulator(businessId: string) {
   if (!conv) return { messages: [], mode: "BOT" as const, conversationId: null };
   const msgs = await getConversationMessages(conv.id);
   return {
-    messages: msgs.map((m) => ({ id: m.id, role: m.role, text: m.text })),
+    messages: msgs.map((m) => ({ id: m.id, role: m.role, text: m.text, mediaUrl: m.mediaUrl })),
     mode: conv.mode,
     conversationId: conv.id,
   };
@@ -222,4 +242,22 @@ export async function resetSimulation(businessId: string) {
   await requireBusinessAccess(businessId);
   await resetSimulator(businessId, simPhone(businessId));
   revalidatePath(`/dashboard/b/${businessId}`, "layout");
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export async function testWooConnection(businessId: string, _prev: FormState): Promise<FormState> {
+  await requireBusinessAccess(businessId);
+  const b = await db.query.businesses.findFirst({ where: eq(businesses.id, businessId) });
+  const creds = b && wooCreds(b);
+  if (!creds) return { error: "احفظ رابط المتجر والمفتاحين أولًا" };
+  try {
+    const r = await testConnection(creds);
+    return {
+      ok:
+        `✓ الاتصال ناجح${r.sampleProduct ? ` — مثال منتج: ${r.sampleProduct}` : ""}` +
+        (r.ordersOk ? " · الطلبات متاحة" : " · ⚠️ لا صلاحية لقراءة الطلبات (استعلام حالة الطلب لن يعمل)"),
+    };
+  } catch (e) {
+    return { error: `فشل الاتصال: ${(e as Error).message}` };
+  }
 }

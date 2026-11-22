@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { updateBusiness } from "@/app/actions";
+import { testWooConnection, updateBusiness } from "@/app/actions";
 import { FormMessage, SubmitButton } from "@/components/ui";
 
 type B = {
@@ -20,6 +20,8 @@ type B = {
   waPhoneNumberId: string;
   hasToken: boolean;
   hasPassword: boolean;
+  wooUrl: string;
+  hasWooKeys: boolean;
 };
 
 function Field({
@@ -124,6 +126,42 @@ export function SettingsForm({ business: b, isAdmin, webhookUrl }: { business: B
         </div>
       </section>
 
+      <section className="card space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold">ربط متجر WooCommerce</h2>
+          {b.wooUrl && b.hasWooKeys && <span className="badge bg-brand-100 text-brand-700">مربوط</span>}
+        </div>
+        <p className="-mt-2 text-sm text-gray-500">
+          عند الربط يبحث البوت في منتجات المتجر مباشرة (السعر، التوفر، المقاسات، الرابط والصورة)، ويخبر العميل بحالة طلبه
+          بعد التحقق من رقمه.
+        </p>
+        <ol className="list-inside list-decimal space-y-1 rounded-xl bg-gray-50 p-4 text-sm text-gray-600">
+          <li>من لوحة ووردبريس: WooCommerce ← الإعدادات ← متقدم ← REST API ← إضافة مفتاح.</li>
+          <li>
+            اختر مستخدمًا مديرًا، والصلاحية <b>Read</b> (قراءة فقط تكفي)، ثم «إنشاء مفتاح API».
+          </li>
+          <li>انسخ Consumer key و Consumer secret والصقهما هنا، ثم احفظ واضغط «اختبار الاتصال».</li>
+        </ol>
+        <Field name="wooUrl" label="رابط المتجر" defaultValue={b.wooUrl} dir="ltr" placeholder="https://mystore.com" hint="اتركه فارغًا واحفظ لإلغاء الربط." />
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field
+            name="wooConsumerKey"
+            label="Consumer key"
+            type="password"
+            dir="ltr"
+            placeholder={b.hasWooKeys ? "•••••• محفوظ — اتركه فارغًا للإبقاء عليه" : "ck_..."}
+          />
+          <Field
+            name="wooConsumerSecret"
+            label="Consumer secret"
+            type="password"
+            dir="ltr"
+            placeholder={b.hasWooKeys ? "•••••• محفوظ — اتركه فارغًا للإبقاء عليه" : "cs_..."}
+          />
+        </div>
+        {b.wooUrl && b.hasWooKeys && <WooTestButton businessId={b.id} />}
+      </section>
+
       {isAdmin && (
         <section className="card space-y-4">
           <h2 className="text-lg font-bold">دخول العميل</h2>
@@ -148,5 +186,17 @@ export function SettingsForm({ business: b, isAdmin, webhookUrl }: { business: B
         <FormMessage state={state} />
       </div>
     </form>
+  );
+}
+
+function WooTestButton({ businessId }: { businessId: string }) {
+  const [state, action, pending] = useActionState(testWooConnection.bind(null, businessId), undefined);
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      <button type="submit" formAction={action} className="btn-ghost" disabled={pending}>
+        {pending ? "جارٍ الاختبار..." : "اختبار الاتصال"}
+      </button>
+      <FormMessage state={state} />
+    </div>
   );
 }

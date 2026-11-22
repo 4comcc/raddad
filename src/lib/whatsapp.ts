@@ -17,16 +17,21 @@ export function verifySignature(rawBody: string, header: string | null) {
 }
 
 export async function sendText(opts: { phoneNumberId: string; token: string; to: string; text: string }) {
+  return postMessage(opts, { type: "text", text: { preview_url: true, body: opts.text.slice(0, 4096) } });
+}
+
+export async function sendImage(opts: { phoneNumberId: string; token: string; to: string; imageUrl: string; caption?: string }) {
+  return postMessage(opts, {
+    type: "image",
+    image: { link: opts.imageUrl, ...(opts.caption ? { caption: opts.caption.slice(0, 1024) } : {}) },
+  });
+}
+
+async function postMessage(opts: { phoneNumberId: string; token: string; to: string }, payload: Record<string, unknown>) {
   const res = await fetch(`${graph()}/${opts.phoneNumberId}/messages`, {
     method: "POST",
     headers: { Authorization: `Bearer ${opts.token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      messaging_product: "whatsapp",
-      recipient_type: "individual",
-      to: opts.to,
-      type: "text",
-      text: { preview_url: false, body: opts.text.slice(0, 4096) },
-    }),
+    body: JSON.stringify({ messaging_product: "whatsapp", recipient_type: "individual", to: opts.to, ...payload }),
   });
   const data = (await res.json().catch(() => ({}))) as {
     messages?: { id: string }[];

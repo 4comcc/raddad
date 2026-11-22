@@ -29,6 +29,10 @@ export const businesses = pgTable("businesses", {
   waPhoneNumberId: text("wa_phone_number_id").unique(),
   waAccessToken: text("wa_access_token"),
   botEnabled: boolean("bot_enabled").notNull().default(true),
+  // WooCommerce REST API (read-only keys are enough)
+  wooUrl: text("woo_url"),
+  wooConsumerKey: text("woo_consumer_key"),
+  wooConsumerSecret: text("woo_consumer_secret"),
   // Client dashboard access (scrypt hash)
   passwordHash: text("password_hash"),
   createdAt: now("created_at"),
@@ -68,6 +72,7 @@ export const messages = pgTable(
     role: messageRole("role").notNull(),
     text: text("text").notNull(),
     waMessageId: text("wa_message_id").unique(),
+    mediaUrl: text("media_url"),
     error: text("error"),
     createdAt: now("created_at"),
   },

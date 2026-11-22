@@ -2,8 +2,8 @@ import "server-only";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { businesses, conversations, leads, messages, type Business } from "@/db/schema";
-import { generateReply } from "@/lib/ai";
-import { sendText } from "@/lib/whatsapp";
+import { generateReply, type AiResult } from "@/lib/ai";
+import { sendImage, sendText } from "@/lib/whatsapp";
 
 /** Store an inbound customer message. Returns null if it was a duplicate webhook delivery. */
 export async function receiveCustomerMessage(opts: {
@@ -81,7 +81,7 @@ export async function processConversation(conversationId: string, triggerMessage
   // Already answered?
   if (history[history.length - 1]?.role !== "CUSTOMER") return { skipped: "answered" as const };
 
-  let result;
+  let result: AiResult;
   if (matchesHandoffKeyword(b, lastCustomer.text)) {
     result = {
       reply: "تمام، سيتواصل معك أحد زملائنا في أقرب وقت 🙏",
@@ -90,7 +90,7 @@ export async function processConversation(conversationId: string, triggerMessage
     };
   } else {
     try {
-      result = await generateReply(b, history);
+      result = await generateReply(b, history, { customerPhone: conv.customerPhone, isSimulator: conv.isSimulator });
     } catch (e) {
       console.error("AI error", e);
       result = {
@@ -108,6 +108,16 @@ export async function processConversation(conversationId: string, triggerMessage
       .values({ conversationId: conv.id, role: "BOT", text: result.reply })
       .returning();
     botMessageId = m.id;
+  }
+
+  // Product images go out as separate WhatsApp image messages after the text.
+  const imageMessages: { id: string; url: string; caption: string }[] = [];
+  for (const img of result.images ?? []) {
+    const [m] = await db
+      .insert(messages)
+      .values({ conversationId: conv.id, role: "BOT", text: img.caption ?? "", mediaUrl: img.url })
+      .returning();
+    imageMessages.push({ id: m.id, url: img.url, caption: img.caption ?? "" });
   }
 
   if (result.lead) {
@@ -134,17 +144,23 @@ export async function processConversation(conversationId: string, triggerMessage
   if (result.reply && botMessageId && !conv.isSimulator) {
     await deliver(b, conv.customerPhone, botMessageId, result.reply);
   }
-  return { reply: result.reply, handoff: result.handoff, lead: result.lead };
+  if (!conv.isSimulator) {
+    for (const img of imageMessages) await deliver(b, conv.customerPhone, img.id, img.caption, img.url);
+  }
+  return { reply: result.reply, handoff: result.handoff, lead: result.lead, images: result.images };
 }
 
 /** Send a stored outbound message over WhatsApp and record the outcome. */
-export async function deliver(b: Business, to: string, messageId: string, text: string) {
+export async function deliver(b: Business, to: string, messageId: string, text: string, imageUrl?: string) {
   if (!b.waPhoneNumberId || !b.waAccessToken) {
     await db.update(messages).set({ error: "واتساب غير مربوط لهذا النشاط" }).where(eq(messages.id, messageId));
     return;
   }
   try {
-    const waId = await sendText({ phoneNumberId: b.waPhoneNumberId, token: b.waAccessToken, to, text });
+    const opts = { phoneNumberId: b.waPhoneNumberId, token: b.waAccessToken, to };
+    const waId = imageUrl
+      ? await sendImage({ ...opts, imageUrl, caption: text })
+      : await sendText({ ...opts, text });
     await db.update(messages).set({ waMessageId: waId, error: null }).where(eq(messages.id, messageId));
   } catch (e) {
     await db

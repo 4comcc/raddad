@@ -39,6 +39,8 @@ export default async function SettingsPage({ params, searchParams }: PageProps<"
           waPhoneNumberId: b.waPhoneNumberId ?? "",
           hasToken: Boolean(b.waAccessToken),
           hasPassword: Boolean(b.passwordHash),
+          wooUrl: b.wooUrl ?? "",
+          hasWooKeys: Boolean(b.wooConsumerKey && b.wooConsumerSecret),
         }}
         isAdmin={session?.role === "admin"}
         webhookUrl={`${origin}/api/whatsapp/webhook`}

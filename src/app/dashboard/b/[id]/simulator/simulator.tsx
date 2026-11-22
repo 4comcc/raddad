@@ -4,7 +4,7 @@ import { useRef, useState, useTransition } from "react";
 import { resetSimulation, setConversationMode, simulateMessage } from "@/app/actions";
 import { ChatBubble } from "@/components/chat-bubble";
 
-type Msg = { id: string; role: "CUSTOMER" | "BOT" | "AGENT" | "SYSTEM"; text: string };
+type Msg = { id: string; role: "CUSTOMER" | "BOT" | "AGENT" | "SYSTEM"; text: string; mediaUrl?: string | null };
 type State = { messages: Msg[]; mode: "BOT" | "HUMAN"; conversationId: string | null };
 
 export function Simulator({ businessId, initial }: { businessId: string; initial: State }) {
@@ -64,7 +64,7 @@ export function Simulator({ businessId, initial }: { businessId: string; initial
             <p className="rounded-xl bg-white/70 p-3 text-center text-xs text-gray-500">ابدأ المحادثة كأنك عميل 👇</p>
           )}
           {state.messages.map((m) => (
-            <ChatBubble key={m.id} role={m.role} text={m.text} />
+            <ChatBubble key={m.id} role={m.role} text={m.text} mediaUrl={m.mediaUrl} />
           ))}
           {pending && (
             <div className="flex justify-end">
