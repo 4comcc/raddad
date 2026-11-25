@@ -3,7 +3,7 @@ import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { businesses, conversations, leads, messages, type Business } from "@/db/schema";
 import { generateReply, type AiResult } from "@/lib/ai";
-import { sendImage, sendText } from "@/lib/whatsapp";
+import { sendDocument, sendImage, sendText } from "@/lib/whatsapp";
 
 /** Store an inbound customer message. Returns null if it was a duplicate webhook delivery. */
 export async function receiveCustomerMessage(opts: {
@@ -90,7 +90,12 @@ export async function processConversation(conversationId: string, triggerMessage
     };
   } else {
     try {
-      result = await generateReply(b, history, { customerPhone: conv.customerPhone, isSimulator: conv.isSimulator });
+      result = await generateReply(b, history, {
+        customerPhone: conv.customerPhone,
+        isSimulator: conv.isSimulator,
+        conversationId: conv.id,
+        customerName: conv.customerName,
+      });
     } catch (e) {
       console.error("AI error", e);
       result = {
@@ -110,14 +115,31 @@ export async function processConversation(conversationId: string, triggerMessage
     botMessageId = m.id;
   }
 
-  // Product images go out as separate WhatsApp image messages after the text.
-  const imageMessages: { id: string; url: string; caption: string }[] = [];
+  // Product images and quote files go out as separate WhatsApp media messages after the text.
+  const mediaMessages: { id: string; url: string; caption: string; kind: "image" | "document"; fileName?: string }[] = [];
   for (const img of result.images ?? []) {
     const [m] = await db
       .insert(messages)
-      .values({ conversationId: conv.id, role: "BOT", text: img.caption ?? "", mediaUrl: img.url })
+      .values({ conversationId: conv.id, role: "BOT", text: img.caption ?? "", mediaUrl: img.url, mediaType: "image" })
       .returning();
-    imageMessages.push({ id: m.id, url: img.url, caption: img.caption ?? "" });
+    mediaMessages.push({ id: m.id, url: img.url, caption: img.caption ?? "", kind: "image" });
+  }
+  for (const doc of result.documents ?? []) {
+    const [m] = await db
+      .insert(messages)
+      .values({
+        conversationId: conv.id,
+        role: "BOT",
+        text: doc.caption ?? "",
+        mediaUrl: doc.url,
+        mediaType: "document",
+        fileName: doc.fileName,
+      })
+      .returning();
+    mediaMessages.push({ id: m.id, url: doc.url, caption: doc.caption ?? "", kind: "document", fileName: doc.fileName });
+  }
+  if (result.quoteSummary) {
+    await db.insert(leads).values({ businessId: b.id, conversationId: conv.id, kind: "INQUIRY", details: result.quoteSummary });
   }
 
   if (result.lead) {
@@ -138,6 +160,7 @@ export async function processConversation(conversationId: string, triggerMessage
         ? { mode: "HUMAN" as const, needsAttention: true, attentionNote: result.handoffReason ?? "يحتاج تدخل موظف" }
         : {}),
       ...(result.lead && !result.handoff ? { needsAttention: true, attentionNote: "طلب/حجز جديد" } : {}),
+      ...(result.quoteSummary && !result.handoff && !result.lead ? { needsAttention: true, attentionNote: "عرض سعر جديد" } : {}),
     })
     .where(eq(conversations.id, conv.id));
 
@@ -145,22 +168,33 @@ export async function processConversation(conversationId: string, triggerMessage
     await deliver(b, conv.customerPhone, botMessageId, result.reply);
   }
   if (!conv.isSimulator) {
-    for (const img of imageMessages) await deliver(b, conv.customerPhone, img.id, img.caption, img.url);
+    for (const m of mediaMessages) {
+      await deliver(b, conv.customerPhone, m.id, m.caption, m.kind === "image" ? m.url : undefined, m.kind === "document" ? { url: m.url, fileName: m.fileName ?? "file" } : undefined);
+    }
   }
-  return { reply: result.reply, handoff: result.handoff, lead: result.lead, images: result.images };
+  return { reply: result.reply, handoff: result.handoff, lead: result.lead, images: result.images, documents: result.documents };
 }
 
 /** Send a stored outbound message over WhatsApp and record the outcome. */
-export async function deliver(b: Business, to: string, messageId: string, text: string, imageUrl?: string) {
+export async function deliver(
+  b: Business,
+  to: string,
+  messageId: string,
+  text: string,
+  imageUrl?: string,
+  document?: { url: string; fileName: string },
+) {
   if (!b.waPhoneNumberId || !b.waAccessToken) {
     await db.update(messages).set({ error: "واتساب غير مربوط لهذا النشاط" }).where(eq(messages.id, messageId));
     return;
   }
   try {
     const opts = { phoneNumberId: b.waPhoneNumberId, token: b.waAccessToken, to };
-    const waId = imageUrl
-      ? await sendImage({ ...opts, imageUrl, caption: text })
-      : await sendText({ ...opts, text });
+    const waId = document
+      ? await sendDocument({ ...opts, link: document.url, fileName: document.fileName, caption: text })
+      : imageUrl
+        ? await sendImage({ ...opts, imageUrl, caption: text })
+        : await sendText({ ...opts, text });
     await db.update(messages).set({ waMessageId: waId, error: null }).where(eq(messages.id, messageId));
   } catch (e) {
     await db

@@ -4,7 +4,11 @@ const nextConfig: NextConfig = {
   // Every dashboard page is per-user and live, so we render dynamically.
   cacheComponents: false,
   partialPrefetching: false,
-  serverExternalPackages: ["pg"],
+  serverExternalPackages: ["pg", "pdfkit", "exceljs"],
+  // Arabic font files read at runtime by the quote PDF generator
+  outputFileTracingIncludes: {
+    "/**": ["./assets/fonts/**/*"],
+  },
   turbopack: {
     rules: {
       "*.css": {

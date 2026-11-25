@@ -248,3 +248,14 @@ export async function testConnection(c: WooCreds) {
   }
   return { productsOk: true, sampleProduct: products[0]?.name, ordersOk };
 }
+
+/** Fetch one product's authoritative name/price/image (used to verify quote prices). */
+export async function getProduct(c: WooCreds, id: number) {
+  try {
+    const p = await wooGet<WooProduct>(c, `/products/${id}`);
+    const price = Number(p.price);
+    return Number.isFinite(price) ? { name: p.name, price, image: p.images[0]?.src, link: p.permalink } : null;
+  } catch {
+    return null;
+  }
+}

@@ -15,6 +15,13 @@
       "when": 1795308689749,
       "tag": "0001_woocommerce",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795634853040,
+      "tag": "0002_quotes",
+      "breakpoints": true
     }
   ]
 }

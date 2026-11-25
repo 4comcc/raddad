@@ -41,6 +41,11 @@ export default async function SettingsPage({ params, searchParams }: PageProps<"
           hasPassword: Boolean(b.passwordHash),
           wooUrl: b.wooUrl ?? "",
           hasWooKeys: Boolean(b.wooConsumerKey && b.wooConsumerSecret),
+          quotesEnabled: b.quotesEnabled,
+          quoteCurrency: b.quoteCurrency,
+          quoteTaxRate: b.quoteTaxRate,
+          quoteValidDays: b.quoteValidDays,
+          quoteTerms: b.quoteTerms,
         }}
         isAdmin={session?.role === "admin"}
         webhookUrl={`${origin}/api/whatsapp/webhook`}

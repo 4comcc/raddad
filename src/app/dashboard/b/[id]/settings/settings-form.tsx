@@ -22,6 +22,11 @@ type B = {
   hasPassword: boolean;
   wooUrl: string;
   hasWooKeys: boolean;
+  quotesEnabled: boolean;
+  quoteCurrency: string;
+  quoteTaxRate: number;
+  quoteValidDays: number;
+  quoteTerms: string;
 };
 
 function Field({
@@ -77,7 +82,7 @@ export function SettingsForm({ business: b, isAdmin, webhookUrl }: { business: B
           label="المنتجات والخدمات والأسعار"
           rows={8}
           defaultValue={b.catalog}
-          hint="سطر لكل صنف: الاسم: السعر. يمكنك لصق المنيو أو قائمة الأسعار كما هي."
+          hint="سطر لكل صنف: الاسم: السعر. يمكنك لصق المنيو أو قائمة الأسعار كما هي، وإضافة رابط صورة المنتج (https://...jpg) في نفس السطر ليرسلها البوت."
         />
         <Field name="faqs" label="أسئلة شائعة" rows={5} defaultValue={b.faqs} hint="سؤال؟ جواب. — سطر لكل سؤال" />
         <Field name="policies" label="السياسات (توصيل، إلغاء، استرجاع، دفع...)" rows={3} defaultValue={b.policies} />
@@ -124,6 +129,33 @@ export function SettingsForm({ business: b, isAdmin, webhookUrl }: { business: B
             placeholder={b.hasToken ? "•••••• محفوظ — اتركه فارغًا للإبقاء عليه" : "EAAG..."}
           />
         </div>
+      </section>
+
+      <section className="card space-y-4">
+        <input type="hidden" name="quotesSection" value="1" />
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold">عروض الأسعار</h2>
+          <label className="flex items-center gap-2 text-sm font-semibold">
+            <input type="checkbox" name="quotesEnabled" defaultChecked={b.quotesEnabled} className="h-4 w-4 accent-emerald-600" />
+            مفعّل
+          </label>
+        </div>
+        <p className="-mt-2 text-sm text-gray-500">
+          عندما يطلب العميل عرض سعر، يجهّزه البوت كملف PDF أو Excel ويرسله على واتساب، ويظهر في «الطلبات والحجوزات».
+          الإجمالي والضريبة تُحسب تلقائيًا من الأسعار.
+        </p>
+        <div className="grid gap-4 md:grid-cols-3">
+          <Field name="quoteCurrency" label="العملة" defaultValue={b.quoteCurrency} placeholder="ريال / جنيه / درهم" />
+          <Field name="quoteTaxRate" label="نسبة الضريبة %" type="number" defaultValue={String(b.quoteTaxRate)} placeholder="15" />
+          <Field name="quoteValidDays" label="صلاحية العرض (أيام)" type="number" defaultValue={String(b.quoteValidDays)} />
+        </div>
+        <Field
+          name="quoteTerms"
+          label="الشروط في أسفل العرض"
+          rows={3}
+          defaultValue={b.quoteTerms}
+          hint="مثال: الأسعار شاملة الضريبة. الدفع 50% مقدمًا. التوصيل خلال 3 أيام. — إن تُرك فارغًا تُستخدم «السياسات»."
+        />
       </section>
 
       <section className="card space-y-4">

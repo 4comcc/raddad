@@ -16,8 +16,11 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^1.10.0",
     "@paralleldrive/cuid2": "^3.3.0",
+    "bidi-js": "^1.1.0",
     "drizzle-orm": "^0.45.4",
+    "exceljs": "^4.4.0",
     "next": "16.4.6",
+    "pdfkit": "^0.21.0",
     "pg": "^8.23.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
@@ -27,6 +30,7 @@
   "devDependencies": {
     "@tailwindcss/turbopack": "4.3.3",
     "@types/node": "^20",
+    "@types/pdfkit": "^0.17.7",
     "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",

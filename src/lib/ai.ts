@@ -2,6 +2,7 @@ import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import type { Business, Message } from "@/db/schema";
 import { getOrderForCustomer, recentOrdersForPhone, searchProducts, wooCreds, type WooCreds } from "@/lib/woocommerce";
+import { createQuote, type QuoteRequestItem } from "@/lib/quotes";
 
 export type AiResult = {
   reply: string;
@@ -10,9 +11,16 @@ export type AiResult = {
   lead?: { kind: "ORDER" | "BOOKING" | "INQUIRY"; details: string };
   customerName?: string;
   images?: { url: string; caption?: string }[];
+  documents?: { url: string; fileName: string; caption?: string }[];
+  quoteSummary?: string;
 };
 
-export type ReplyContext = { customerPhone: string; isSimulator: boolean };
+export type ReplyContext = {
+  customerPhone: string;
+  isSimulator: boolean;
+  conversationId?: string;
+  customerName?: string | null;
+};
 
 const RESPOND_TOOL: Anthropic.Tool = {
   name: "respond",
@@ -48,7 +56,7 @@ const RESPOND_TOOL: Anthropic.Tool = {
         type: "array",
         maxItems: 3,
         description:
-          "Product images to send after the text (only image URLs returned by search_products). Use when the customer asks to see a product or is choosing between products.",
+          "Product images to send after the text (only image URLs returned by search_products or written in the business catalog). Use when the customer asks to see a product or is choosing between products.",
         items: {
           type: "object",
           properties: {
@@ -96,6 +104,40 @@ const STORE_TOOLS: Anthropic.Tool[] = [
   },
 ];
 
+const QUOTE_TOOL: Anthropic.Tool = {
+  name: "create_quote",
+  description:
+    "Create a formal price quote (عرض سعر) as a PDF or Excel file and attach it to the WhatsApp reply. Totals and tax are calculated automatically. Use only prices from the catalog or search_products results.",
+  input_schema: {
+    type: "object",
+    properties: {
+      format: { type: "string", enum: ["pdf", "xlsx"], description: "pdf (default) or xlsx for Excel." },
+      customer_name: { type: "string" },
+      items: {
+        type: "array",
+        minItems: 1,
+        maxItems: 50,
+        items: {
+          type: "object",
+          properties: {
+            name: { type: "string", description: "Product/service name as shown to the customer, including size/color." },
+            quantity: { type: "number" },
+            unit_price: { type: "number", description: "Price per unit before tax, from the catalog or search results." },
+            product_id: { type: "number", description: "WooCommerce product id from search_products (price is then verified from the store)." },
+            image_url: { type: "string", description: "Product image URL from search results or the catalog, to show in the quote." },
+            note: { type: "string", description: "Optional short detail, e.g. size or color." },
+          },
+          required: ["name", "quantity", "unit_price"],
+        },
+      },
+      notes: { type: "string", description: "Optional notes for this quote (delivery, special conditions)." },
+    },
+    required: ["format", "items"],
+  },
+};
+
+const IMAGE_URL_RE = /https:\/\/[^\s"'<>]+?\.(?:jpe?g|png|webp)(?:\?[^\s"'<>]*)?/gi;
+
 export function buildSystemPrompt(b: Business, hasStore = false) {
   const section = (title: string, body: string) => (body.trim() ? `## ${title}\n${body.trim()}\n` : "");
   const storeRules = hasStore
@@ -108,6 +150,17 @@ export function buildSystemPrompt(b: Business, hasStore = false) {
 - إن أراد الطلب عبر واتساب بدل الموقع: اجمع المنتج والمقاس والكمية والاسم والعنوان والهاتف، ثم لخّص واطلب التأكيد وسجّله في lead.
 `
     : "";
+  const quoteRules = b.quotesEnabled
+    ? `
+عروض الأسعار (لديك الأداة create_quote):
+- إذا طلب العميل عرض سعر أو فاتورة مبدئية أو تسعيرة لعدة أصناف: تأكد من الأصناف والكميات${hasStore ? " وابحث عن الأسعار بـ search_products" : ""}، واسأله عن اسمه إن لم تعرفه، وعن الصيغة (PDF أو Excel) إن لم يحددها — الافتراضي PDF.
+- ثم استدعِ create_quote بالأسعار الصحيحة فقط${hasStore ? " ومعها product_id و image_url من نتائج البحث" : ""}. لا تحسب الإجمالي بنفسك؛ الأداة تحسبه.
+- بعد إنشائه أرسل رسالة قصيرة: أن العرض مرفق، رقمه، والإجمالي كما أعادته الأداة.
+`
+    : "";
+  const catalogImages = (b.catalog.match(IMAGE_URL_RE) ?? []).length
+    ? "\n- في قائمة المنتجات روابط صور؛ إذا طلب العميل رؤية منتج أرفق رابط صورته في images.\n"
+    : "";
   return `أنت موظف خدمة العملاء على واتساب لنشاط "${b.name}". تتحدث باسم النشاط كأنك أحد موظفيه.
 
 قواعد أساسية:
@@ -119,7 +172,7 @@ export function buildSystemPrompt(b: Business, hasStore = false) {
 - إذا اشتكى العميل أو غضب أو طلب التحدث مع إنسان: اعتذر بلطف وأخبره أن زميلًا سيتواصل معه قريبًا، واجعل handoff = true.
 - لا تذكر أنك ذكاء اصطناعي إلا إذا سُئلت مباشرة؛ وإن سُئلت فكن صادقًا وقل إنك مساعد آلي للنشاط.
 - أنهِ كل دور باستدعاء الأداة respond مرة واحدة لإرسال ردك.
-${storeRules}
+${storeRules}${quoteRules}${catalogImages}
 # معلومات النشاط
 ${section("نبذة", b.description)}${section("مواعيد العمل", b.hours)}${section("العنوان / الفروع / رابط المتجر", b.location)}${section("المنتجات والخدمات والأسعار", b.catalog)}${section("أسئلة شائعة", b.faqs)}${section("السياسات", b.policies)}${section("تعليمات خاصة", b.extraInstructions)}`;
 }
@@ -143,8 +196,43 @@ export function aiConfigured() {
   return Boolean(process.env.ANTHROPIC_API_KEY);
 }
 
-async function runStoreTool(name: string, input: Record<string, unknown>, woo: WooCreds, ctx: ReplyContext) {
+type ToolEnv = {
+  b: Business;
+  woo: WooCreds | null;
+  ctx: ReplyContext;
+  allowedImages: Set<string>;
+  documents: NonNullable<AiResult["documents"]>;
+  quoteSummaries: string[];
+};
+
+async function runTool(name: string, input: Record<string, unknown>, env: ToolEnv) {
+  const { woo, ctx } = env;
   try {
+    if (name === "create_quote") {
+      const r = await createQuote({
+        business: env.b,
+        conversationId: ctx.conversationId,
+        customerPhone: ctx.customerPhone,
+        customerName: (input.customer_name as string) || ctx.customerName || undefined,
+        format: input.format === "xlsx" ? "xlsx" : "pdf",
+        items: (input.items as QuoteRequestItem[]) ?? [],
+        notes: input.notes as string | undefined,
+        allowedImages: env.allowedImages,
+      });
+      if ("quote" in r && r.quote) {
+        const q = r.quote;
+        env.documents.push({ url: q.url, fileName: q.fileName, caption: `عرض سعر رقم ${q.number}` });
+        env.quoteSummaries.push(
+          `عرض سعر #${q.number} (${q.format.toUpperCase()}) — الإجمالي ${q.total} ${q.currency}\n${q.items.join("\n")}\n${q.url}`,
+        );
+        const { url: _url, id: _id, ...forModel } = q;
+        void _url;
+        void _id;
+        return { created: true, ...forModel, warnings: r.warnings };
+      }
+      return r;
+    }
+    if (!woo) return { error: "المتجر غير مربوط" };
     switch (name) {
       case "search_products":
         return { products: await searchProducts(woo, String(input.query ?? ""), 5) };
@@ -198,13 +286,15 @@ export async function generateReply(
 
   const woo = wooCreds(b);
   const client = new Anthropic();
-  const tools = woo ? [...STORE_TOOLS, RESPOND_TOOL] : [RESPOND_TOOL];
+  const tools = [...(woo ? STORE_TOOLS : []), ...(b.quotesEnabled ? [QUOTE_TOOL] : []), RESPOND_TOOL];
+  const hasTools = tools.length > 1;
   const messages = toApiMessages(history.slice(-30));
   const system: Anthropic.TextBlockParam[] = [
     { type: "text", text: buildSystemPrompt(b, Boolean(woo)), cache_control: { type: "ephemeral" } },
   ];
-  // Images may only come from real search results.
-  const seenImages = new Set<string>();
+  // Images may only come from real search results or the business's own catalog text.
+  const seenImages = new Set<string>(b.catalog.match(IMAGE_URL_RE) ?? []);
+  const env: ToolEnv = { b, woo, ctx, allowedImages: seenImages, documents: [], quoteSummaries: [] };
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     const lastRound = round === MAX_TOOL_ROUNDS - 1;
@@ -214,7 +304,7 @@ export async function generateReply(
       system,
       tools,
       // Must always call a tool; on the last round force the final reply.
-      tool_choice: woo && !lastRound ? { type: "any" } : { type: "tool", name: "respond" },
+      tool_choice: hasTools && !lastRound ? { type: "any" } : { type: "tool", name: "respond" },
       messages,
     });
 
@@ -223,6 +313,8 @@ export async function generateReply(
     if (respond) {
       const result = parseRespond(respond.input as Record<string, unknown>);
       result.images = result.images?.filter((img) => seenImages.has(img.url));
+      result.documents = env.documents;
+      result.quoteSummary = env.quoteSummaries.join("\n\n") || undefined;
       return result;
     }
     if (!uses.length) {
@@ -233,7 +325,7 @@ export async function generateReply(
     messages.push({ role: "assistant", content: res.content });
     const results: Anthropic.ToolResultBlockParam[] = [];
     for (const u of uses) {
-      const out = woo ? await runStoreTool(u.name, u.input as Record<string, unknown>, woo, ctx) : { error: "no store" };
+      const out = await runTool(u.name, u.input as Record<string, unknown>, env);
       if ("products" in out && Array.isArray(out.products)) {
         for (const p of out.products as { image?: string }[]) if (p.image) seenImages.add(p.image);
       }
@@ -241,7 +333,13 @@ export async function generateReply(
     }
     messages.push({ role: "user", content: results });
   }
-  return { reply: "", handoff: true, handoffReason: "تعذر إكمال الرد الآلي" };
+  return {
+    reply: env.documents.length ? "تفضل، عرض السعر مرفق 👇" : "",
+    handoff: !env.documents.length,
+    handoffReason: "تعذر إكمال الرد الآلي",
+    documents: env.documents,
+    quoteSummary: env.quoteSummaries.join("\n\n") || undefined,
+  };
 }
 
 /** Rule-based replies so the product can be demoed without an API key. */

@@ -27,6 +27,20 @@ export async function sendImage(opts: { phoneNumberId: string; token: string; to
   });
 }
 
+export async function sendDocument(opts: {
+  phoneNumberId: string;
+  token: string;
+  to: string;
+  link: string;
+  fileName: string;
+  caption?: string;
+}) {
+  return postMessage(opts, {
+    type: "document",
+    document: { link: opts.link, filename: opts.fileName, ...(opts.caption ? { caption: opts.caption.slice(0, 1024) } : {}) },
+  });
+}
+
 async function postMessage(opts: { phoneNumberId: string; token: string; to: string }, payload: Record<string, unknown>) {
   const res = await fetch(`${graph()}/${opts.phoneNumberId}/messages`, {
     method: "POST",

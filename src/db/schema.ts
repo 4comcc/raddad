@@ -1,6 +1,20 @@
 import { createId } from "@paralleldrive/cuid2";
 import { relations } from "drizzle-orm";
-import { boolean, index, pgEnum, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import {
+  boolean,
+  customType,
+  doublePrecision,
+  index,
+  integer,
+  jsonb,
+  pgEnum,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
+
+const bytea = customType<{ data: Buffer }>({ dataType: () => "bytea" });
 
 export const conversationMode = pgEnum("conversation_mode", ["BOT", "HUMAN"]);
 export const messageRole = pgEnum("message_role", ["CUSTOMER", "BOT", "AGENT", "SYSTEM"]);
@@ -33,6 +47,12 @@ export const businesses = pgTable("businesses", {
   wooUrl: text("woo_url"),
   wooConsumerKey: text("woo_consumer_key"),
   wooConsumerSecret: text("woo_consumer_secret"),
+  // Price quotes (عروض الأسعار)
+  quotesEnabled: boolean("quotes_enabled").notNull().default(true),
+  quoteCurrency: text("quote_currency").notNull().default(""),
+  quoteTaxRate: doublePrecision("quote_tax_rate").notNull().default(0),
+  quoteValidDays: integer("quote_valid_days").notNull().default(7),
+  quoteTerms: text("quote_terms").notNull().default(""),
   // Client dashboard access (scrypt hash)
   passwordHash: text("password_hash"),
   createdAt: now("created_at"),
@@ -73,6 +93,8 @@ export const messages = pgTable(
     text: text("text").notNull(),
     waMessageId: text("wa_message_id").unique(),
     mediaUrl: text("media_url"),
+    mediaType: text("media_type"), // image | document
+    fileName: text("file_name"),
     error: text("error"),
     createdAt: now("created_at"),
   },
@@ -95,6 +117,27 @@ export const leads = pgTable(
     createdAt: now("created_at"),
   },
   (t) => [index("lead_business_created").on(t.businessId, t.createdAt)],
+);
+
+export const quotes = pgTable(
+  "quotes",
+  {
+    id: id(),
+    businessId: text("business_id")
+      .notNull()
+      .references(() => businesses.id, { onDelete: "cascade" }),
+    conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+    number: integer("number").notNull(),
+    token: text("token").notNull(),
+    format: text("format").notNull(), // pdf | xlsx
+    customerName: text("customer_name"),
+    data: jsonb("data").notNull(),
+    total: doublePrecision("total").notNull(),
+    currency: text("currency").notNull().default(""),
+    file: bytea("file").notNull(),
+    createdAt: now("created_at"),
+  },
+  (t) => [uniqueIndex("quote_business_number").on(t.businessId, t.number)],
 );
 
 export const businessRelations = relations(businesses, ({ many }) => ({
@@ -121,3 +164,4 @@ export type Business = typeof businesses.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;
 export type Message = typeof messages.$inferSelect;
 export type Lead = typeof leads.$inferSelect;
+export type Quote = typeof quotes.$inferSelect;

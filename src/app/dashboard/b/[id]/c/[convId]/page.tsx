@@ -57,7 +57,10 @@ export default async function ConversationPage({ params }: PageProps<"/dashboard
         <div className="flex flex-1 flex-col-reverse overflow-y-auto bg-[#efeae2] px-4 py-4">
           <div className="space-y-2">
             {msgs.map((m) => (
-              <ChatBubble key={m.id} role={m.role} text={m.text} time={m.createdAt} error={m.error} mediaUrl={m.mediaUrl} />
+              <ChatBubble key={m.id} role={m.role} text={m.text} time={m.createdAt} error={m.error} mediaUrl={m.mediaUrl}
+                mediaType={m.mediaType}
+                fileName={m.fileName}
+              />
             ))}
           </div>
         </div>

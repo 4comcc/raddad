@@ -112,6 +112,18 @@ export async function updateBusiness(businessId: string, _: FormState, form: For
   const token = String(form.get("waAccessToken") ?? "").trim();
   if (token) data.waAccessToken = token; // empty = keep existing
 
+  // Quotes
+  if (form.get("quotesSection") !== null) {
+    data.quotesEnabled = form.get("quotesEnabled") === "on";
+    data.quoteCurrency = String(form.get("quoteCurrency") ?? "").trim().slice(0, 20);
+    const tax = Number(form.get("quoteTaxRate") ?? 0);
+    if (!Number.isFinite(tax) || tax < 0 || tax > 100) return { error: "نسبة الضريبة يجب أن تكون بين 0 و 100" };
+    data.quoteTaxRate = tax;
+    const days = Math.round(Number(form.get("quoteValidDays") ?? 7));
+    data.quoteValidDays = Number.isFinite(days) && days > 0 && days <= 365 ? days : 7;
+    data.quoteTerms = String(form.get("quoteTerms") ?? "").slice(0, 3000);
+  }
+
   // WooCommerce
   const wooUrl = form.get("wooUrl");
   if (wooUrl !== null) {
@@ -232,7 +244,14 @@ export async function loadSimulator(businessId: string) {
   if (!conv) return { messages: [], mode: "BOT" as const, conversationId: null };
   const msgs = await getConversationMessages(conv.id);
   return {
-    messages: msgs.map((m) => ({ id: m.id, role: m.role, text: m.text, mediaUrl: m.mediaUrl })),
+    messages: msgs.map((m) => ({
+      id: m.id,
+      role: m.role,
+      text: m.text,
+      mediaUrl: m.mediaUrl,
+      mediaType: m.mediaType,
+      fileName: m.fileName,
+    })),
     mode: conv.mode,
     conversationId: conv.id,
   };
